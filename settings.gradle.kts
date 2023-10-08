@@ -1,7 +1,5 @@
 rootProject.name = "mopidy-kontrol"
 
-include("lib")
-
 pluginManagement {
     repositories {
         gradlePluginPortal()
