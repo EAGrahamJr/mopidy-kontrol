@@ -1,0 +1,36 @@
+name: Basic Gradle Build
+on:
+  push:
+    branches: [ main ]
+    paths_ignore:
+      - '*.md'
+      - 'docs/**'
+  pull_request:
+    branches: [ main ]
+    paths_ignore:
+      - '*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  just-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout build plugins
+        uses: actions/checkout@v3
+        with:
+          repository: EAGrahamJr/gradle-scripts
+          path: gradle-scripts
+      - name: Build plugins
+        run: |
+          cd gradle-scripts
+          ./gradlew --no-daemon --quiet build publishToMavenLocal
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Java
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Build
+        run: ./gradlew --no-daemon build
