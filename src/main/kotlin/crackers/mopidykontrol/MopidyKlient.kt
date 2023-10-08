@@ -35,7 +35,6 @@ class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duratio
                 data?.let {
                     logger.debug("Received: $it")
                     if (it.contains("\"event\":")) {
-                        logger.info("Event: $it")
                         return super.onText(webSocket, data, last)
                     }
                     RPCResponse.fromJson(it.toString())
@@ -114,7 +113,7 @@ class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duratio
         }
 
     private fun sendRequest(request: RPCRequest) {
-        logger.info("Sending command: ${request.method}")
+        logger.debug("Sending command: ${request.method}")
         wsClient.sendText(request.toJson(), true).exceptionally {
             logger.error("Error on send", it)
             null
