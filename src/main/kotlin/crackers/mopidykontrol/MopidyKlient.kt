@@ -15,6 +15,8 @@ import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
+import kotlin.math.max
+import kotlin.math.min
 
 class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duration.ofSeconds(5)) : AutoCloseable {
     private val logger = LoggerFactory.getLogger(MopidyKlient::class.java.simpleName)
@@ -89,12 +91,24 @@ class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duratio
 
     var volume: Int
         get() = lock.withLock {
-            logger.debug("Getting volume")
-            return 0
+            // set up the request, then use the ID to set up a response queue and wait for it
+            val response = sengRequestWithResponse(RPCRequest(id = nextId, command = Command.MixerGetVolume))
+            return response.result?.toInt() ?: -1
         }
         set(value) = lock.withLock {
-            logger.debug("Setting volume to $value")
+            sendRequest(RPCRequest(id = nextId, command = Command.MixerSetVolume, params = mapOf("volume" to value)))
         }
+
+    fun volumeUp() = lock.withLock {
+        val current = volume
+        if (volume < 100) volume = min(current + 5, 100)
+    }
+
+    fun volumeDown() = lock.withLock {
+        val current = volume
+        if (volume > 0) volume = max(current - 5, 0)
+    }
+
     var mute: Boolean
         get() = lock.withLock {
             logger.debug("Getting mute")
@@ -118,5 +132,13 @@ class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duratio
             logger.error("Error on send", it)
             null
         }
+    }
+
+    private fun sengRequestWithResponse(request: RPCRequest): RPCResponse {
+        val responseQueue = SynchronousQueue<RPCResponse>()
+        responseMapper[request.id] = responseQueue
+        sendRequest(request)
+        // TODO set up a reasonable timeout
+        return responseQueue.take()
     }
 }
