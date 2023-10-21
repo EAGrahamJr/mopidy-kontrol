@@ -22,9 +22,10 @@ dependencies {
     api("org.json:json:20230618")
     api("org.slf4j:slf4j-api:2.0.0")
 
+    testImplementation("com.typesafe:config:1.4.2")
     testImplementation("io.kotest:kotest-runner-junit5:5.5.4")
     testImplementation("io.mockk:mockk:1.13.3")
-    testImplementation("org.slf4j:slf4j-simple:2.0.0")
+    testImplementation("ch.qos.logback:logback-classic:1.3.11")
 }
 
 kotlin {
@@ -39,7 +40,7 @@ kotlinter {
 
 group = "crackers.automation"
 // TODO semver
-version = "0.0.1"
+version = "0.0.2"
 
 tasks {
     build {

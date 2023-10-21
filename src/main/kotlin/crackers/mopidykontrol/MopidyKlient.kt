@@ -9,59 +9,134 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.WebSocket
 import java.time.Duration
-import java.util.concurrent.CompletionStage
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.SynchronousQueue
+import java.util.concurrent.*
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 import kotlin.math.max
 import kotlin.math.min
 
-class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duration.ofSeconds(5)) : AutoCloseable {
+/**
+ * A client for the Mopidy websocket API.
+ *
+ * TODO add a way to register event handlers
+ * @param host the host to connect to
+ * @param port the port to connect to
+ * @param timeout the timeout for the connection
+ * @param reconnect whether to reconnect if the connection is lost
+ */
+class MopidyKlient(
+    host: String,
+    port: Int = 6680,
+    private val timeout: Duration = Duration.ofSeconds(5),
+    private val reconnect: Boolean = true
+) : AutoCloseable {
+
     private val logger = LoggerFactory.getLogger(MopidyKlient::class.java.simpleName)
+
+    private val server = "ws://$host:$port/mopidy/ws"
 
     enum class PlayerState {
         PLAYING, PAUSED, STOPPED
     }
 
+    // convenience stuff for the JSON-RPC API
     private val idCounter = AtomicInteger(0)
     private val nextId: Int
         get() = idCounter.incrementAndGet()
 
+    // response management
     private val errorResponse = RPCResponse(id = -1)
     private val responseMapper = ConcurrentHashMap<Int, SynchronousQueue<RPCResponse>>()
+
+    // connection management
+    private val closing = AtomicBoolean(false)
+    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private fun Boolean.doConnect() {
+        if (this && !closing.get()) scheduler.schedule(::connect, timeout.toMillis(), TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * The listener for the websocket. This is where the responses are parsed and the response queues are managed.
+     */
     private val socketListener = object : WebSocket.Listener {
+        // ostensibly got a response
         override fun onText(webSocket: WebSocket?, data: CharSequence?, last: Boolean): CompletionStage<*>? {
             val response = try {
-                data?.let {
-                    logger.debug("Received: $it")
-                    if (it.contains("\"event\":")) {
-                        return super.onText(webSocket, data, last)
+                when {
+                    // nothing received, which is kinda weird
+                    data == null -> {
+                        logger.error("Received null data")
+                        errorResponse
                     }
-                    RPCResponse.fromJson(it.toString())
-                } ?: errorResponse
+                    // event handling
+                    data.contains("\"event\":") -> {
+                        eventHandler(data.toString())
+                        null
+                    }
+                    // response handling
+                    else -> RPCResponse.fromJson(data.toString())
+                }
             } catch (e: Exception) {
-                logger.error("Cannot parse response: $e\n$data")
+                logger.error("Cannot parse response:\n$data", e)
                 errorResponse
             }
-            responseMapper[response.id]?.put(response)
+            if (response != null) responseMapper[response.id]?.put(response)
             return super.onText(webSocket, data, last)
+        }
+
+        // websocket closed
+        override fun onError(webSocket: WebSocket?, error: Throwable?) {
+            logger.error("Error on websocket", error)
+            // TODO should we do this all the time?????
+            reconnect.doConnect()
+            super.onError(webSocket, error)
         }
     }
 
     private val lock = ReentrantLock()
 
-    private val wsClient: WebSocket = HttpClient.newHttpClient().newWebSocketBuilder()
-        .connectTimeout(timeout)
-        .buildAsync(URI("ws://$server:$port/mopidy/ws"), socketListener).get()
+    private lateinit var wsClient: WebSocket
+
+    private fun connect() {
+        if (closing.get()) return // prevent re-opening when close was explicitly called
+
+        logger.warn("Connecting to mopidy at $server")
+        HttpClient.newHttpClient().newWebSocketBuilder()
+            .connectTimeout(timeout)
+            .buildAsync(URI(server), socketListener).whenComplete { client, error ->
+                if (error != null) {
+                    logger.error("Cannot connect to mopidy", error)
+                    reconnect.doConnect()
+                } else {
+                    wsClient = client
+                    logger.info("Connected to mopidy")
+                }
+            }.get()
+    }
+
+    init {
+        connect()
+    }
+
+    /**
+     * The handler for events. By default, this just logs the event.
+     *
+     * TODO provide a real event object
+     * TODO provide a way to register event handlers?
+     */
+    val eventHandler: (String) -> Unit = { logger.info(it) }
 
     override fun close() {
-        wsClient.sendClose(WebSocket.NORMAL_CLOSURE, "Close").thenRun {
-            logger.info("Closed")
-        }.exceptionally {
-            if (it !is IOException) logger.error("Close: $it")
-            null
+        closing.set(true)
+        lock.withLock {
+            wsClient.sendClose(WebSocket.NORMAL_CLOSURE, "Close").thenRun {
+                logger.info("Closed")
+            }.exceptionally {
+                if (it !is IOException) logger.error("Close: $it")
+                null
+            }
         }
     }
 
@@ -92,7 +167,7 @@ class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duratio
     var volume: Int
         get() = lock.withLock {
             // set up the request, then use the ID to set up a response queue and wait for it
-            val response = sengRequestWithResponse(RPCRequest(id = nextId, command = Command.MixerGetVolume))
+            val response = sendRequestWithResponse(RPCRequest(id = nextId, command = Command.MixerGetVolume))
             return response.result?.toInt() ?: -1
         }
         set(value) = lock.withLock {
@@ -134,11 +209,10 @@ class MopidyKlient(server: String, port: Int = 6680, timeout: Duration = Duratio
         }
     }
 
-    private fun sengRequestWithResponse(request: RPCRequest): RPCResponse {
+    private fun sendRequestWithResponse(request: RPCRequest): RPCResponse {
         val responseQueue = SynchronousQueue<RPCResponse>()
         responseMapper[request.id] = responseQueue
         sendRequest(request)
-        // TODO set up a reasonable timeout
-        return responseQueue.take()
+        return responseQueue.poll(timeout.toMillis(), TimeUnit.MILLISECONDS) ?: errorResponse
     }
 }
