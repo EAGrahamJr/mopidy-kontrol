@@ -11,6 +11,7 @@ plugins {
     id("org.jmailen.kotlinter") version "3.12.0"
     id("library-publish") version "1.0.1"
     id("org.jetbrains.dokka") version "1.8.10"
+    id("net.thauvin.erik.gradle.semver") version "1.0.4"
 }
 
 repositories {
@@ -39,8 +40,6 @@ kotlinter {
 }
 
 group = "crackers.automation"
-// TODO semver
-version = "0.0.2"
 
 tasks {
     build {
