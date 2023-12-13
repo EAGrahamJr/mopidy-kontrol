@@ -5,6 +5,7 @@ package crackers.mopidykontrol
 
 import org.slf4j.LoggerFactory
 import java.io.IOException
+import java.net.ConnectException
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.WebSocket
@@ -51,10 +52,13 @@ class MopidyKlient(
     private val responseMapper = ConcurrentHashMap<Int, SynchronousQueue<RPCResponse>>()
 
     // connection management
+    private val connecting = AtomicBoolean(false)
     private val closing = AtomicBoolean(false)
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
-    private fun Boolean.doConnect() {
-        if (this && !closing.get()) scheduler.schedule(::connect, timeout.toMillis(), TimeUnit.MILLISECONDS)
+    private fun doConnect() {
+        if (reconnect && !closing.get() && connecting.compareAndSet(false, true)) {
+            scheduler.schedule(::connect, timeout.toMillis(), TimeUnit.MILLISECONDS)
+        }
     }
 
     /**
@@ -90,25 +94,27 @@ class MopidyKlient(
         override fun onError(webSocket: WebSocket?, error: Throwable?) {
             logger.error("Error on websocket", error)
             // TODO should we do this all the time?????
-            reconnect.doConnect()
+            if (reconnect && error is ConnectException) doConnect()
             super.onError(webSocket, error)
         }
     }
 
     private val lock = ReentrantLock()
 
-    private lateinit var wsClient: WebSocket
+    private var wsClient: WebSocket? = null
 
     private fun connect() {
         if (closing.get()) return // prevent re-opening when close was explicitly called
 
         logger.warn("Connecting to mopidy at $server")
+        connecting.set(false)
         HttpClient.newHttpClient().newWebSocketBuilder()
             .connectTimeout(timeout)
             .buildAsync(URI(server), socketListener).whenComplete { client, error ->
                 if (error != null) {
-                    logger.error("Cannot connect to mopidy", error)
-                    reconnect.doConnect()
+                    logger.error("Cannot connect to mopidy: {}", error.localizedMessage)
+                    wsClient = null
+                    doConnect()
                 } else {
                     wsClient = client
                     logger.info("Connected to mopidy")
@@ -131,85 +137,91 @@ class MopidyKlient(
     override fun close() {
         closing.set(true)
         lock.withLock {
-            wsClient.sendClose(WebSocket.NORMAL_CLOSURE, "Close").thenRun {
+            wsClient?.sendClose(WebSocket.NORMAL_CLOSURE, "Close")?.thenRun {
                 logger.info("Closed")
-            }.exceptionally {
+            }?.exceptionally {
                 if (it !is IOException) logger.error("Close: $it")
                 null
             }
         }
     }
 
-    fun play(args: String? = null) = lock.withLock {
+    fun play(args: String? = null) {
         sendRequest(RPCRequest(id = nextId, command = Command.PlaybackPlay))
     }
 
-    fun resume() = lock.withLock {
+    fun resume() {
         sendRequest(RPCRequest(id = nextId, command = Command.PlaybackResume))
     }
 
-    fun pause() = lock.withLock {
+    fun pause() {
         sendRequest(RPCRequest(id = nextId, command = Command.PlaybackPause))
     }
 
-    fun stop() = lock.withLock {
+    fun stop() {
         sendRequest(RPCRequest(id = nextId, command = Command.PlaybackStop))
     }
 
-    fun next() = lock.withLock {
+    fun next() {
         sendRequest(RPCRequest(id = nextId, command = Command.PlaybackNext))
     }
 
-    fun previous() = lock.withLock {
+    fun previous() {
         sendRequest(RPCRequest(id = nextId, command = Command.PlaybackPrevious))
     }
 
     var volume: Int
-        get() = lock.withLock {
+        get() {
             // set up the request, then use the ID to set up a response queue and wait for it
             val response = sendRequestWithResponse(RPCRequest(id = nextId, command = Command.MixerGetVolume))
             return response.result?.toInt() ?: -1
         }
-        set(value) = lock.withLock {
+        set(value) {
             sendRequest(RPCRequest(id = nextId, command = Command.MixerSetVolume, params = mapOf("volume" to value)))
         }
 
-    fun volumeUp() = lock.withLock {
+    fun volumeUp() {
         val current = volume
         if (volume < 100) volume = min(current + 5, 100)
     }
 
-    fun volumeDown() = lock.withLock {
+    fun volumeDown() {
         val current = volume
         if (volume > 0) volume = max(current - 5, 0)
     }
 
     var mute: Boolean
-        get() = lock.withLock {
+        get() {
             logger.debug("Getting mute")
             return false
         }
-        set(value) = lock.withLock {
+        set(value) {
             logger.debug("Setting mute to $value")
         }
     var state: PlayerState
-        get() = lock.withLock {
+        get() {
             logger.debug("Getting state")
             return PlayerState.STOPPED
         }
-        set(value) = lock.withLock {
+        set(value) {
             logger.debug("Setting state to $value")
         }
 
-    private fun sendRequest(request: RPCRequest) {
+    private fun sendRequest(request: RPCRequest) = lock.withLock {
+        if (closing.get()) return@withLock
+
         logger.debug("Sending command: ${request.method}")
-        wsClient.sendText(request.toJson(), true).exceptionally {
-            logger.error("Error on send", it)
-            null
-        }
+        wsClient?.run {
+            if (isInputClosed) {
+                sendText(request.toJson(), true).exceptionally {
+                    logger.error("Error on send", it)
+                    null
+                }
+            }
+        } ?: doConnect()
     }
 
-    private fun sendRequestWithResponse(request: RPCRequest): RPCResponse {
+    private fun sendRequestWithResponse(request: RPCRequest): RPCResponse = lock.withLock {
         val responseQueue = SynchronousQueue<RPCResponse>()
         responseMapper[request.id] = responseQueue
         sendRequest(request)
