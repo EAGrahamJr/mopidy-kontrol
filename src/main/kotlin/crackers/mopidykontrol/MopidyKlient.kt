@@ -212,7 +212,7 @@ class MopidyKlient(
 
         logger.debug("Sending command: ${request.method}")
         wsClient?.run {
-            if (isInputClosed) {
+            if (!isInputClosed) {
                 sendText(request.toJson(), true).exceptionally {
                     logger.error("Error on send", it)
                     null
