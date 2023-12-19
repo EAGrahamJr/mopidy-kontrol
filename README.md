@@ -2,6 +2,8 @@
 
 A **simple** client for controlling [mopidy](https://mopidy.com/). This uses the [Web Socket](https://docs.mopidy.com/en/latest/api/http/#websocket-api) interface.
 
+[Java Docs](https://eagrahamjr.github.io/mopidy-kontrol/)
+
 ![Just Build](https://github.com/EAGrahamJr/HAssK/actions/workflows/build.yaml/badge.svg) ![Kotlin](https://badgen.net/badge/Kotlin/1.9.10/purple)  ![Java](https://badgen.net/badge/Java/17/orange) ![Apache License](https://badgen.net/github/license/EAGrahamJr/HAssK)
 
 ## Again, **WHY**??
