@@ -27,7 +27,7 @@ fun main() {
     }
 
     while (true) {
-        println(client.volume)
+        println(client.state)
         Thread.sleep(1000)
     }
 }

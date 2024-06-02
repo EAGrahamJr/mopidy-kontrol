@@ -201,7 +201,12 @@ class MopidyKlient(
     var state: PlayerState
         get() {
             logger.debug("Getting state")
-            return PlayerState.STOPPED
+            val response = sendRequestWithResponse(RPCRequest(id = nextId, command = Command.PlaybackGetState))
+            return when (response.result) {
+                "playing" -> PlayerState.PLAYING
+                "paused" -> PlayerState.PAUSED
+                else -> PlayerState.STOPPED
+            }
         }
         set(value) {
             logger.debug("Setting state to $value")
