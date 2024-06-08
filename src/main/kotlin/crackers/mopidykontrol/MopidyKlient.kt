@@ -19,9 +19,8 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * A client for the Mopidy websocket API.
+ * A very simple client for the Mopidy websocket API. To receive events, clients should over-ride the [eventHandler].
  *
- * TODO add a way to register event handlers
  * @param host the host to connect to
  * @param port the port to connect to
  * @param timeout the timeout for the connection
@@ -128,11 +127,8 @@ class MopidyKlient(
 
     /**
      * The handler for events. By default, this just logs the event.
-     *
-     * TODO provide a real event object
-     * TODO provide a way to register event handlers?
      */
-    val eventHandler: (String) -> Unit = { logger.info(it) }
+    var eventHandler: (String) -> Unit = { logger.info(it) }
 
     override fun close() {
         closing.set(true)
@@ -209,7 +205,7 @@ class MopidyKlient(
             }
         }
         set(value) {
-            logger.debug("Setting state to $value")
+            logger.debug("Setting state to {}", value)
         }
 
     private fun sendRequest(request: RPCRequest) = lock.withLock {

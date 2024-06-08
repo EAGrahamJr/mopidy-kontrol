@@ -10,7 +10,7 @@ A **simple** client for controlling [mopidy](https://mopidy.com/). This uses the
 
 Yet another small concoction to integrate with my "Kobots" robotic/home-automation/hardware-ish hacking projects. The idea is to _not_ build a fully functional, do-everything client: that's been done (as usual with OSS, to overkill :grinning:).
 
-The idea is to just stop/start/play/pause/volume/mute and **that's it**. It's to be used in the ecosystem to just _barely_ manage playback via external "events" (e.g. a button on my mad [BBoard](https://github.com/EAGrahamJr/kobots-buttonboard) project). This is being built out as a library so I can change my mind about where it's used later...
+The idea is to just stop/start/play/pause/volume/mute and **that's it**. It's to be used in the ecosystem to just _barely_ manage playback via external "events" (e.g. a button on my mad [BBoard](https://github.com/EAGrahamJr/kobots-buttonboard) project). This is being built out as a library, so I can change my mind about where it's used later...
 
 JSON serialization is done via the "reference" implementation from [org.json](https://github.com/stleary/JSON-java)
 
