@@ -1,5 +1,7 @@
 # mopidy-kontrol
 
+‼️**ARCHIVED** I'm no longer using Mopidy, so this is now in the "don't care that much" state.
+
 A **simple** client for controlling [mopidy](https://mopidy.com/). This uses the [Web Socket](https://docs.mopidy.com/en/latest/api/http/#websocket-api) interface.
 
 [Java Docs](https://eagrahamjr.github.io/mopidy-kontrol/)
